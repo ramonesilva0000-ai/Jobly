@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+data/jobs.db
+data/jobs.db-journal
+data/jobs.db-wal
+data/jobs.db-shm
+data/outputs/
+data/backups/
+logs/*.log
+logs/*.log.*
+.DS_Store
+*.swp
+.idea/
+.vscode/

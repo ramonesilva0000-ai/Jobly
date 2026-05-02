@@ -1,0 +1,14 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# runit service script for Jobly under termux-services.
+# The setup script substitutes __JOBLY_DIR__ with the absolute project path.
+
+exec 2>&1
+
+JOBLY_DIR="__JOBLY_DIR__"
+cd "$JOBLY_DIR" || exit 1
+
+# Ensure we don't get killed by Doze. Safe to call repeatedly.
+command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
+
+export NODE_ENV=production
+exec node src/index.js

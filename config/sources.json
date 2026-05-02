@@ -1,0 +1,52 @@
+{
+  "sources": [
+    {
+      "name": "careerpoint",
+      "enabled": true,
+      "type": "rss",
+      "feed_url": "https://www.careerpointkenya.co.ke/feed/"
+    },
+    {
+      "name": "corporatestaffing",
+      "enabled": false,
+      "type": "rss",
+      "feed_url": "https://corporatestaffing.co.ke/feed/"
+    },
+    {
+      "name": "myjobsinkenya",
+      "enabled": false,
+      "type": "rss",
+      "feed_url": ""
+    },
+    {
+      "name": "openedcareer",
+      "enabled": false,
+      "type": "html",
+      "list_url": "https://openedcareer.com/"
+    },
+    {
+      "name": "brightermonday-imap",
+      "enabled": false,
+      "type": "imap",
+      "imap_label": "jobs/brightermonday"
+    },
+    {
+      "name": "fuzu-imap",
+      "enabled": false,
+      "type": "imap",
+      "imap_label": "jobs/fuzu"
+    },
+    {
+      "name": "linkedin-imap",
+      "enabled": false,
+      "type": "imap",
+      "imap_label": "jobs/linkedin"
+    },
+    {
+      "name": "kontaken-telegram",
+      "enabled": false,
+      "type": "html",
+      "list_url": "https://t.me/s/kjupdates"
+    }
+  ]
+}

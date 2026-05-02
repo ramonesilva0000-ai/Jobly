@@ -1,0 +1,35 @@
+{
+  "auto_apply_threshold": 8.5,
+  "queue_threshold": 6.0,
+  "target_roles": [
+    "operations",
+    "supply chain",
+    "logistics",
+    "branch manager",
+    "warehouse",
+    "dispatch",
+    "retail manager",
+    "grant writer",
+    "proposal writer",
+    "administrator",
+    "coordinator",
+    "store manager"
+  ],
+  "preferred_locations": [
+    "Kericho",
+    "Kisumu",
+    "Nakuru",
+    "Eldoret",
+    "Nairobi",
+    "Remote"
+  ],
+  "exclude_keywords": [
+    "MLM",
+    "commission only",
+    "join our network",
+    "make money fast",
+    "network marketing"
+  ],
+  "max_anthropic_calls_per_minute": 30,
+  "http_per_host_rps": 1
+}

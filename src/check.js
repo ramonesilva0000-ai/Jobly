@@ -1,0 +1,73 @@
+// Self-check: imports every module and prints a summary. No network calls.
+// Useful as a sanity check after install or when adding a new adapter.
+
+require('dotenv').config();
+
+const path = require('node:path');
+const fs = require('node:fs');
+
+function ok(label, detail = '') {
+  console.log(`  OK  ${label}${detail ? '  ' + detail : ''}`);
+}
+
+function fail(label, err) {
+  console.log(`  FAIL ${label}: ${err.message}`);
+  process.exitCode = 1;
+}
+
+console.log('Jobly self-check');
+
+try {
+  const logger = require('./logger');
+  ok('logger');
+  logger.debug('check.js loaded logger');
+} catch (e) { fail('logger', e); }
+
+try {
+  const rl = require('./ratelimit');
+  if (typeof rl.createTokenBucket !== 'function') throw new Error('missing createTokenBucket');
+  if (typeof rl.createPerKeyThrottle !== 'function') throw new Error('missing createPerKeyThrottle');
+  ok('ratelimit');
+} catch (e) { fail('ratelimit', e); }
+
+try {
+  const db = require('./db');
+  db.getDb();
+  ok('db', `(${db.DB_PATH})`);
+} catch (e) { fail('db', e); }
+
+try {
+  const base = require('./sources/_base');
+  if (typeof base.fetchHtml !== 'function') throw new Error('missing fetchHtml');
+  if (typeof base.fetchRss !== 'function') throw new Error('missing fetchRss');
+  if (typeof base.makeId !== 'function') throw new Error('missing makeId');
+  ok('sources/_base', `(UA: ${base.userAgent()})`);
+} catch (e) { fail('sources/_base', e); }
+
+try {
+  const cfgPath = path.join(__dirname, '..', 'config', 'sources.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  const enabled = (cfg.sources || []).filter((s) => s.enabled);
+  ok('config/sources.json', `(${enabled.length} enabled)`);
+  for (const s of enabled) {
+    try {
+      const adapter = require(path.join(__dirname, 'sources', `${s.name}.js`));
+      if (!adapter || adapter.name !== s.name) throw new Error('adapter name mismatch');
+      if (typeof adapter.fetchNewJobs !== 'function') throw new Error('missing fetchNewJobs');
+      ok(`adapter:${s.name}`);
+    } catch (e) { fail(`adapter:${s.name}`, e); }
+  }
+} catch (e) { fail('config/sources.json', e); }
+
+try {
+  const poller = require('./poller');
+  if (typeof poller.runOnce !== 'function') throw new Error('missing runOnce');
+  if (typeof poller.start !== 'function') throw new Error('missing start');
+  ok('poller');
+} catch (e) { fail('poller', e); }
+
+if (process.exitCode === 1) {
+  console.log('\nSelf-check FAILED.');
+} else {
+  console.log('\nSelf-check passed.');
+}
