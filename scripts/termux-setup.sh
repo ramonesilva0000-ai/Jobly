@@ -14,6 +14,11 @@
 
 set -euo pipefail
 
+# cd into the project root regardless of where the user invoked the script from.
+JOBLY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$JOBLY_DIR"
+echo "==> Project dir: $JOBLY_DIR"
+
 echo "==> Updating Termux package index"
 pkg update -y
 pkg upgrade -y
@@ -42,7 +47,6 @@ npm install --no-audit --no-fund
 echo "==> Running self-check"
 npm run check
 
-JOBLY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SVDIR="$PREFIX/var/service/jobly"
 
 echo "==> Installing termux-services unit at $SVDIR"
