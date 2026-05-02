@@ -66,6 +66,20 @@ try {
   ok('poller');
 } catch (e) { fail('poller', e); }
 
+try {
+  const parser = require('./parser');
+  if (typeof parser.parseJobPosting !== 'function') throw new Error('missing parseJobPosting');
+  if (parser.MODEL !== 'claude-sonnet-4-6') throw new Error(`unexpected model: ${parser.MODEL}`);
+  const hasKey = !!process.env.ANTHROPIC_API_KEY;
+  ok('parser', hasKey ? `(model=${parser.MODEL}, API key present)` : `(model=${parser.MODEL}, no API key — parser disabled)`);
+} catch (e) { fail('parser', e); }
+
+try {
+  const { parsePending } = require('./parse-pending');
+  if (typeof parsePending !== 'function') throw new Error('missing parsePending');
+  ok('parse-pending');
+} catch (e) { fail('parse-pending', e); }
+
 if (process.exitCode === 1) {
   console.log('\nSelf-check FAILED.');
 } else {

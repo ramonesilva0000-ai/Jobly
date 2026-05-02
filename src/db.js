@@ -54,6 +54,33 @@ function initSchema(db) {
       dupe_count  INTEGER NOT NULL DEFAULT 0,
       error       TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS parsed_jobs (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      raw_job_id          INTEGER NOT NULL UNIQUE
+                          REFERENCES raw_jobs(id) ON DELETE CASCADE,
+      is_job_posting      INTEGER NOT NULL,
+      title               TEXT,
+      employer            TEXT,
+      location            TEXT,
+      remote_ok           INTEGER,
+      key_requirements    TEXT,
+      responsibilities    TEXT,
+      salary              TEXT,
+      deadline            TEXT,
+      application_method  TEXT,
+      application_target  TEXT,
+      raw_excerpt         TEXT,
+      parse_status        TEXT NOT NULL,
+      parse_error         TEXT,
+      input_tokens        INTEGER,
+      output_tokens       INTEGER,
+      parsed_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_parsed_jobs_status   ON parsed_jobs(parse_status);
+    CREATE INDEX IF NOT EXISTS idx_parsed_jobs_employer ON parsed_jobs(employer);
+    CREATE INDEX IF NOT EXISTS idx_parsed_jobs_method   ON parsed_jobs(application_method);
   `);
 }
 
@@ -142,6 +169,81 @@ function recentRawJobs(limit = 20) {
   `).all(limit);
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Parsed-job helpers (Phase 2).
+// ────────────────────────────────────────────────────────────────────
+
+function getUnparsedRawJobs(limit = 50) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT r.id, r.source, r.external_id, r.url, r.raw_title, r.raw_text,
+           r.fetched_at, r.posted_at
+    FROM raw_jobs r
+    LEFT JOIN parsed_jobs p ON p.raw_job_id = r.id
+    WHERE p.id IS NULL
+    ORDER BY r.id ASC
+    LIMIT ?
+  `).all(limit);
+}
+
+function insertParsedJob(rawJobId, parsed, usage, status) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO parsed_jobs (
+      raw_job_id, is_job_posting, title, employer, location, remote_ok,
+      key_requirements, responsibilities, salary, deadline,
+      application_method, application_target, raw_excerpt,
+      parse_status, parse_error, input_tokens, output_tokens
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    ON CONFLICT(raw_job_id) DO NOTHING
+  `).run(
+    rawJobId,
+    parsed.is_job_posting ? 1 : 0,
+    parsed.title,
+    parsed.employer,
+    parsed.location,
+    parsed.remote_ok === null ? null : (parsed.remote_ok ? 1 : 0),
+    JSON.stringify(parsed.key_requirements || []),
+    JSON.stringify(parsed.responsibilities || []),
+    parsed.salary,
+    parsed.deadline,
+    parsed.application_method,
+    parsed.application_target,
+    parsed.raw_excerpt,
+    status,
+    usage?.input_tokens || null,
+    usage?.output_tokens || null,
+  );
+}
+
+function insertParseFailure(rawJobId, errorMessage) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO parsed_jobs (
+      raw_job_id, is_job_posting, parse_status, parse_error
+    ) VALUES (?, 0, 'failed', ?)
+    ON CONFLICT(raw_job_id) DO NOTHING
+  `).run(rawJobId, errorMessage || 'unknown error');
+}
+
+function recentParsedJobs({ limit = 25, onlyJobs = false } = {}) {
+  const db = getDb();
+  const where = onlyJobs ? "WHERE p.parse_status = 'parsed'" : '';
+  return db.prepare(`
+    SELECT p.id, p.raw_job_id, p.is_job_posting, p.title, p.employer,
+           p.location, p.remote_ok, p.application_method,
+           p.application_target, p.salary, p.deadline,
+           p.parse_status, p.parse_error,
+           p.input_tokens, p.output_tokens, p.parsed_at,
+           r.source, r.url
+    FROM parsed_jobs p
+    JOIN raw_jobs r ON r.id = p.raw_job_id
+    ${where}
+    ORDER BY p.id DESC
+    LIMIT ?
+  `).all(limit);
+}
+
 function close() {
   if (_db) {
     _db.close();
@@ -155,6 +257,10 @@ module.exports = {
   insertRawJobs,
   recordPollRun,
   recentRawJobs,
+  getUnparsedRawJobs,
+  insertParsedJob,
+  insertParseFailure,
+  recentParsedJobs,
   contentHash,
   close,
   DB_PATH,

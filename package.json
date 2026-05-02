@@ -8,12 +8,14 @@
     "start": "node --no-warnings=ExperimentalWarning src/index.js",
     "once": "node --no-warnings=ExperimentalWarning src/index.js --once",
     "check": "node --no-warnings=ExperimentalWarning src/check.js",
+    "parse": "node --no-warnings=ExperimentalWarning src/parse-pending.js",
     "jobs": "node --no-warnings=ExperimentalWarning src/cli/list-jobs.js"
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
     "axios": "^1.7.7",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
