@@ -1,7 +1,12 @@
+// SQLite wrapper. Uses Node's built-in `node:sqlite` module (stable in Node
+// 22.13+ and 24+). This avoids better-sqlite3's native build, which doesn't
+// play nicely with Termux/Android (binding.gyp expects an Android NDK that
+// Termux doesn't ship).
+
 const fs = require('node:fs');
 const path = require('node:path');
-const Database = require('better-sqlite3');
 const crypto = require('node:crypto');
+const { DatabaseSync } = require('node:sqlite');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -12,9 +17,9 @@ let _db = null;
 
 function getDb() {
   if (_db) return _db;
-  _db = new Database(DB_PATH);
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('foreign_keys = ON');
+  _db = new DatabaseSync(DB_PATH);
+  _db.exec('PRAGMA journal_mode = WAL');
+  _db.exec('PRAGMA foreign_keys = ON');
   initSchema(_db);
   return _db;
 }
@@ -62,19 +67,18 @@ function contentHash(post) {
   return h.digest('hex');
 }
 
-const _insertStmt = (db) =>
-  db.prepare(`
-    INSERT INTO raw_jobs
-      (source, external_id, url, fetched_at, posted_at, raw_title, raw_text, content_hash)
-    VALUES
-      (@source, @external_id, @url, @fetched_at, @posted_at, @raw_title, @raw_text, @content_hash)
-    ON CONFLICT(source, external_id) DO NOTHING
-  `);
+// node:sqlite supports named parameters with `:name` (or `@name`/`$name`)
+// in the SQL and an object on .run/.all/.get.
+const _insertSql = `
+  INSERT INTO raw_jobs
+    (source, external_id, url, fetched_at, posted_at, raw_title, raw_text, content_hash)
+  VALUES
+    (:source, :external_id, :url, :fetched_at, :posted_at, :raw_title, :raw_text, :content_hash)
+  ON CONFLICT(source, external_id) DO NOTHING
+`;
 
-function insertRawJob(post) {
-  const db = getDb();
-  const stmt = _insertStmt(db);
-  const row = {
+function rowFromPost(post) {
+  return {
     source: post.source,
     external_id: post.external_id,
     url: post.url || null,
@@ -84,34 +88,40 @@ function insertRawJob(post) {
     raw_text: post.raw_text || null,
     content_hash: contentHash(post),
   };
-  const result = stmt.run(row);
-  return result.changes === 1; // true => newly inserted, false => duplicate
+}
+
+function withTransaction(db, fn) {
+  db.exec('BEGIN');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (_) { /* noop */ }
+    throw err;
+  }
+}
+
+function insertRawJob(post) {
+  const db = getDb();
+  const stmt = db.prepare(_insertSql);
+  const result = stmt.run(rowFromPost(post));
+  return Number(result.changes) === 1; // true => newly inserted, false => duplicate
 }
 
 function insertRawJobs(posts) {
   const db = getDb();
-  const stmt = _insertStmt(db);
-  const tx = db.transaction((items) => {
+  const stmt = db.prepare(_insertSql);
+  return withTransaction(db, () => {
     let added = 0;
     let dupes = 0;
-    for (const p of items) {
-      const row = {
-        source: p.source,
-        external_id: p.external_id,
-        url: p.url || null,
-        fetched_at: p.fetched_at || new Date().toISOString(),
-        posted_at: p.posted_at || null,
-        raw_title: p.raw_title || null,
-        raw_text: p.raw_text || null,
-        content_hash: contentHash(p),
-      };
-      const r = stmt.run(row);
-      if (r.changes === 1) added++;
+    for (const p of posts) {
+      const r = stmt.run(rowFromPost(p));
+      if (Number(r.changes) === 1) added++;
       else dupes++;
     }
     return { added, dupes };
   });
-  return tx(posts);
 }
 
 function recordPollRun({ source, started_at, finished_at, ok, new_count, dupe_count, error }) {

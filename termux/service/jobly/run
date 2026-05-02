@@ -11,4 +11,4 @@ cd "$JOBLY_DIR" || exit 1
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
 
 export NODE_ENV=production
-exec node src/index.js
+exec node --no-warnings=ExperimentalWarning src/index.js

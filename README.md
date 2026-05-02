@@ -46,7 +46,7 @@ jobly/
 
 ## Quick start (VPS / desktop)
 
-Requires **Node.js 20+** and a C/C++ toolchain (for the `better-sqlite3` build).
+Requires **Node.js 22.13+** (Node 24 LTS recommended). No native modules — the bot uses Node's built-in `node:sqlite`, so no Python/clang/make required.
 
 ```bash
 git clone <this-repo> && cd jobly

@@ -5,17 +5,16 @@
   "private": true,
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "once": "node src/index.js --once",
-    "check": "node src/check.js",
-    "jobs": "node src/cli/list-jobs.js"
+    "start": "node --no-warnings=ExperimentalWarning src/index.js",
+    "once": "node --no-warnings=ExperimentalWarning src/index.js --once",
+    "check": "node --no-warnings=ExperimentalWarning src/check.js",
+    "jobs": "node --no-warnings=ExperimentalWarning src/cli/list-jobs.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "dependencies": {
     "axios": "^1.7.7",
-    "better-sqlite3": "^11.5.0",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",

@@ -23,12 +23,15 @@ echo "==> Updating Termux package index"
 pkg update -y
 pkg upgrade -y
 
-echo "==> Installing runtime + build tools"
-# nodejs-lts: Node.js 20 (compatible with package.json engines)
-# python, make, clang: required for better-sqlite3 native build
+echo "==> Installing runtime + service tools"
+# nodejs-lts: Node.js (must be >= 22.13 for the built-in node:sqlite module)
 # termux-services: process supervision (sv / runit)
 # termux-api: optional, for notifications via wake-lock / termux-notification
-pkg install -y nodejs-lts python make clang pkg-config termux-services termux-api
+#
+# We DO NOT install python/make/clang — Jobly uses node:sqlite (built into
+# Node) so there are no native modules to compile. This makes Termux setup
+# fast and avoids better-sqlite3's Android-NDK compatibility issues.
+pkg install -y nodejs-lts termux-services termux-api
 
 echo "==> Disabling Android battery optimization (manual step)"
 cat <<'NOTE'
