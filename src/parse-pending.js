@@ -25,6 +25,7 @@ async function parsePending({ limit = 50, log = logger } = {}) {
     const child = log.child({ raw_id: raw.id, source: raw.source });
     try {
       const result = await parseJobPosting(raw.raw_title, raw.raw_text, {
+        images: Array.isArray(raw.images) ? raw.images : [],
         logger: child,
       });
       const status = result.parsed.is_job_posting ? 'parsed' : 'skipped:not_job';

@@ -99,16 +99,31 @@ function getLimiter() {
   return _limiter;
 }
 
-function buildUserMessage(rawTitle, rawText) {
+function buildUserText(rawTitle, rawText) {
   const title = (rawTitle || '').trim();
   const body = (rawText || '').slice(0, MAX_INPUT_CHARS).trim();
   return `Title: ${title || '(none)'}\n\nBody:\n${body || '(empty)'}`;
 }
 
-async function parseJobPosting(rawTitle, rawText, { logger } = {}) {
+async function parseJobPosting(rawTitle, rawText, { images = [], logger } = {}) {
   await getLimiter().take();
 
-  const userMessage = buildUserMessage(rawTitle, rawText);
+  // Build the user message. For text-only posts, a plain string is fine.
+  // When images are present (e.g. Telegram flyer screenshots), we send a
+  // content array with image blocks alongside the text — Sonnet 4.6 reads
+  // the flyer directly via its vision capability.
+  let userContent;
+  if (Array.isArray(images) && images.length > 0) {
+    userContent = [
+      { type: 'text', text: buildUserText(rawTitle, rawText) },
+    ];
+    for (const url of images) {
+      userContent.push({ type: 'image', source: { type: 'url', url } });
+    }
+  } else {
+    userContent = buildUserText(rawTitle, rawText);
+  }
+
   const client = getClient();
 
   let response;
@@ -122,7 +137,7 @@ async function parseJobPosting(rawTitle, rawText, { logger } = {}) {
         format: { type: 'json_schema', schema: SCHEMA },
       },
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
+      messages: [{ role: 'user', content: userContent }],
     });
   } catch (err) {
     // Surface SDK typed errors clearly. The caller categorizes by message.

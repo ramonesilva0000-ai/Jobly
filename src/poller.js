@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const logger = require('./logger');
 const db = require('./db');
 const { parsePending } = require('./parse-pending');
+const { matchPending } = require('./match-pending');
 
 const SOURCES_CONFIG = path.join(__dirname, '..', 'config', 'sources.json');
 
@@ -92,16 +93,22 @@ async function runOnce() {
   };
   logger.info(summary, 'poll cycle complete');
 
-  // Parse anything we just fetched (Phase 2). Skip if no Anthropic key —
-  // useful for dev environments testing only the polling layer.
+  // Parse + match anything we just fetched (Phases 2 + 3). Skip if no
+  // Anthropic key — useful for dev environments testing only the polling
+  // layer.
   if (process.env.ANTHROPIC_API_KEY) {
     try {
       await parsePending({ log: logger });
     } catch (err) {
       logger.error({ err: err.message }, 'parse cycle errored');
     }
+    try {
+      await matchPending({ log: logger });
+    } catch (err) {
+      logger.error({ err: err.message }, 'match cycle errored');
+    }
   } else {
-    logger.warn('ANTHROPIC_API_KEY not set — skipping parse cycle');
+    logger.warn('ANTHROPIC_API_KEY not set — skipping parse + match cycles');
   }
 
   return results;

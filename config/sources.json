@@ -2,9 +2,22 @@
   "sources": [
     {
       "name": "careerpoint",
-      "enabled": true,
+      "enabled": false,
       "type": "rss",
       "feed_url": "https://www.careerpointkenya.co.ke/feed/"
+    },
+    {
+      "name": "openedcareer",
+      "enabled": true,
+      "type": "html",
+      "list_url": "https://openedcareer.com/",
+      "feed_url": "https://openedcareer.com/feed/"
+    },
+    {
+      "name": "kontaken-telegram",
+      "enabled": true,
+      "type": "html",
+      "list_url": "https://t.me/s/kjupdates"
     },
     {
       "name": "corporatestaffing",
@@ -17,12 +30,6 @@
       "enabled": false,
       "type": "rss",
       "feed_url": ""
-    },
-    {
-      "name": "openedcareer",
-      "enabled": false,
-      "type": "html",
-      "list_url": "https://openedcareer.com/"
     },
     {
       "name": "brightermonday-imap",
@@ -41,12 +48,6 @@
       "enabled": false,
       "type": "imap",
       "imap_label": "jobs/linkedin"
-    },
-    {
-      "name": "kontaken-telegram",
-      "enabled": false,
-      "type": "html",
-      "list_url": "https://t.me/s/kjupdates"
     }
   ]
 }

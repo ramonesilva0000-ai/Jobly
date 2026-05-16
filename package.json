@@ -9,6 +9,7 @@
     "once": "node --no-warnings=ExperimentalWarning src/index.js --once",
     "check": "node --no-warnings=ExperimentalWarning src/check.js",
     "parse": "node --no-warnings=ExperimentalWarning src/parse-pending.js",
+    "match": "node --no-warnings=ExperimentalWarning src/match-pending.js",
     "jobs": "node --no-warnings=ExperimentalWarning src/cli/list-jobs.js"
   },
   "engines": {

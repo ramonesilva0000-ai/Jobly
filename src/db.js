@@ -21,7 +21,21 @@ function getDb() {
   _db.exec('PRAGMA journal_mode = WAL');
   _db.exec('PRAGMA foreign_keys = ON');
   initSchema(_db);
+  runMigrations(_db);
   return _db;
+}
+
+function columnExists(db, table, column) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  return cols.some((c) => c.name === column);
+}
+
+function runMigrations(db) {
+  // Add raw_jobs.images for the Kontaken-Telegram adapter (Phase 6 / Phase 3
+  // re-scope). Idempotent — safe to run on a fresh DB and on existing ones.
+  if (!columnExists(db, 'raw_jobs', 'images')) {
+    db.exec('ALTER TABLE raw_jobs ADD COLUMN images TEXT');
+  }
 }
 
 function initSchema(db) {
@@ -81,6 +95,29 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_parsed_jobs_status   ON parsed_jobs(parse_status);
     CREATE INDEX IF NOT EXISTS idx_parsed_jobs_employer ON parsed_jobs(employer);
     CREATE INDEX IF NOT EXISTS idx_parsed_jobs_method   ON parsed_jobs(application_method);
+
+    CREATE TABLE IF NOT EXISTS match_results (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      parsed_job_id       INTEGER NOT NULL UNIQUE
+                          REFERENCES parsed_jobs(id) ON DELETE CASCADE,
+      score               REAL,
+      skills_match        REAL,
+      experience_match    REAL,
+      location_match      REAL,
+      seniority_match     REAL,
+      blockers            TEXT,
+      highlights          TEXT,
+      recommended_action  TEXT,
+      match_status        TEXT NOT NULL,
+      match_error         TEXT,
+      input_tokens        INTEGER,
+      output_tokens       INTEGER,
+      cache_read_tokens   INTEGER,
+      matched_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_match_action ON match_results(recommended_action);
+    CREATE INDEX IF NOT EXISTS idx_match_score  ON match_results(score);
   `);
 }
 
@@ -98,9 +135,9 @@ function contentHash(post) {
 // in the SQL and an object on .run/.all/.get.
 const _insertSql = `
   INSERT INTO raw_jobs
-    (source, external_id, url, fetched_at, posted_at, raw_title, raw_text, content_hash)
+    (source, external_id, url, fetched_at, posted_at, raw_title, raw_text, images, content_hash)
   VALUES
-    (:source, :external_id, :url, :fetched_at, :posted_at, :raw_title, :raw_text, :content_hash)
+    (:source, :external_id, :url, :fetched_at, :posted_at, :raw_title, :raw_text, :images, :content_hash)
   ON CONFLICT(source, external_id) DO NOTHING
 `;
 
@@ -113,6 +150,9 @@ function rowFromPost(post) {
     posted_at: post.posted_at || null,
     raw_title: post.raw_title || null,
     raw_text: post.raw_text || null,
+    images: Array.isArray(post.images) && post.images.length > 0
+      ? JSON.stringify(post.images)
+      : null,
     content_hash: contentHash(post),
   };
 }
@@ -175,15 +215,23 @@ function recentRawJobs(limit = 20) {
 
 function getUnparsedRawJobs(limit = 50) {
   const db = getDb();
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT r.id, r.source, r.external_id, r.url, r.raw_title, r.raw_text,
-           r.fetched_at, r.posted_at
+           r.images, r.fetched_at, r.posted_at
     FROM raw_jobs r
     LEFT JOIN parsed_jobs p ON p.raw_job_id = r.id
     WHERE p.id IS NULL
     ORDER BY r.id ASC
     LIMIT ?
   `).all(limit);
+  for (const r of rows) {
+    if (typeof r.images === 'string' && r.images.length > 0) {
+      try { r.images = JSON.parse(r.images); } catch { r.images = []; }
+    } else {
+      r.images = [];
+    }
+  }
+  return rows;
 }
 
 function insertParsedJob(rawJobId, parsed, usage, status) {
@@ -244,6 +292,99 @@ function recentParsedJobs({ limit = 25, onlyJobs = false } = {}) {
   `).all(limit);
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Match-result helpers (Phase 3).
+// ────────────────────────────────────────────────────────────────────
+
+function getUnmatchedParsedJobs(limit = 50) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT p.id              AS parsed_job_id,
+           p.raw_job_id,
+           p.title,
+           p.employer,
+           p.location,
+           p.remote_ok,
+           p.key_requirements,
+           p.responsibilities,
+           p.salary,
+           p.deadline,
+           p.application_method,
+           p.application_target,
+           r.source,
+           r.url
+    FROM parsed_jobs p
+    JOIN raw_jobs r ON r.id = p.raw_job_id
+    LEFT JOIN match_results m ON m.parsed_job_id = p.id
+    WHERE p.parse_status = 'parsed'
+      AND p.is_job_posting = 1
+      AND m.id IS NULL
+    ORDER BY p.id ASC
+    LIMIT ?
+  `).all(limit);
+}
+
+function insertMatchResult(parsedJobId, match, usage, status) {
+  const db = getDb();
+  const breakdown = match.score_breakdown || {};
+  db.prepare(`
+    INSERT INTO match_results (
+      parsed_job_id, score,
+      skills_match, experience_match, location_match, seniority_match,
+      blockers, highlights, recommended_action,
+      match_status, match_error,
+      input_tokens, output_tokens, cache_read_tokens
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+    ON CONFLICT(parsed_job_id) DO NOTHING
+  `).run(
+    parsedJobId,
+    match.score == null ? null : Number(match.score),
+    breakdown.skills_match == null ? null : Number(breakdown.skills_match),
+    breakdown.experience_match == null ? null : Number(breakdown.experience_match),
+    breakdown.location_match == null ? null : Number(breakdown.location_match),
+    breakdown.seniority_match == null ? null : Number(breakdown.seniority_match),
+    JSON.stringify(match.blockers || []),
+    JSON.stringify(match.highlights || []),
+    match.recommended_action || null,
+    status,
+    usage?.input_tokens || null,
+    usage?.output_tokens || null,
+    usage?.cache_read_input_tokens || null,
+  );
+}
+
+function insertMatchFailure(parsedJobId, errorMessage) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO match_results (parsed_job_id, match_status, match_error)
+    VALUES (?, 'failed', ?)
+    ON CONFLICT(parsed_job_id) DO NOTHING
+  `).run(parsedJobId, errorMessage || 'unknown error');
+}
+
+function recentMatchedJobs({ limit = 25, minScore = null, action = null } = {}) {
+  const db = getDb();
+  const filters = [];
+  const args = [];
+  if (minScore != null) { filters.push('m.score >= ?'); args.push(minScore); }
+  if (action) { filters.push('m.recommended_action = ?'); args.push(action); }
+  const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+  args.push(limit);
+  return db.prepare(`
+    SELECT m.id, m.parsed_job_id, m.score, m.recommended_action, m.match_status,
+           m.blockers, m.highlights, m.matched_at,
+           p.title, p.employer, p.location, p.application_method,
+           p.application_target,
+           r.source, r.url
+    FROM match_results m
+    JOIN parsed_jobs p ON p.id = m.parsed_job_id
+    JOIN raw_jobs r    ON r.id = p.raw_job_id
+    ${where}
+    ORDER BY m.score DESC NULLS LAST, m.id DESC
+    LIMIT ?
+  `).all(...args);
+}
+
 function close() {
   if (_db) {
     _db.close();
@@ -261,6 +402,10 @@ module.exports = {
   insertParsedJob,
   insertParseFailure,
   recentParsedJobs,
+  getUnmatchedParsedJobs,
+  insertMatchResult,
+  insertMatchFailure,
+  recentMatchedJobs,
   contentHash,
   close,
   DB_PATH,
