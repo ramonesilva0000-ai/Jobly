@@ -5,6 +5,7 @@ const logger = require('./logger');
 const db = require('./db');
 const { parsePending } = require('./parse-pending');
 const { matchPending } = require('./match-pending');
+const { applyPending } = require('./apply-pending');
 
 const SOURCES_CONFIG = path.join(__dirname, '..', 'config', 'sources.json');
 
@@ -93,9 +94,8 @@ async function runOnce() {
   };
   logger.info(summary, 'poll cycle complete');
 
-  // Parse + match anything we just fetched (Phases 2 + 3). Skip if no
-  // Anthropic key — useful for dev environments testing only the polling
-  // layer.
+  // Parse, match, apply (Phases 2-5). Skip if no Anthropic key — useful
+  // for dev environments testing only the polling layer.
   if (process.env.ANTHROPIC_API_KEY) {
     try {
       await parsePending({ log: logger });
@@ -107,8 +107,13 @@ async function runOnce() {
     } catch (err) {
       logger.error({ err: err.message }, 'match cycle errored');
     }
+    try {
+      await applyPending({ log: logger });
+    } catch (err) {
+      logger.error({ err: err.message }, 'apply cycle errored');
+    }
   } else {
-    logger.warn('ANTHROPIC_API_KEY not set — skipping parse + match cycles');
+    logger.warn('ANTHROPIC_API_KEY not set — skipping parse + match + apply cycles');
   }
 
   return results;

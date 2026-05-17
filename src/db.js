@@ -118,6 +118,26 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_match_action ON match_results(recommended_action);
     CREATE INDEX IF NOT EXISTS idx_match_score  ON match_results(score);
+
+    CREATE TABLE IF NOT EXISTS applications (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      match_result_id     INTEGER NOT NULL UNIQUE
+                          REFERENCES match_results(id) ON DELETE CASCADE,
+      apply_status        TEXT NOT NULL,            -- tailoring|ready|sent|failed
+      output_dir          TEXT,
+      resume_path         TEXT,
+      cover_letter_path   TEXT,
+      tailored_at         TEXT,
+      sent_at             TEXT,
+      email_message_id    TEXT,
+      apply_error         TEXT,
+      input_tokens        INTEGER,
+      output_tokens       INTEGER,
+      cache_read_tokens   INTEGER,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_status ON applications(apply_status);
   `);
 }
 
@@ -385,6 +405,137 @@ function recentMatchedJobs({ limit = 25, minScore = null, action = null } = {}) 
   `).all(...args);
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Application helpers (Phases 4–5).
+// ────────────────────────────────────────────────────────────────────
+
+function getActionableMatches({ limit = 50 } = {}) {
+  // Anything the matcher recommended auto_apply or queue, and we haven't
+  // already started an application for.
+  const db = getDb();
+  return db.prepare(`
+    SELECT m.id              AS match_result_id,
+           m.score,
+           m.blockers,
+           m.highlights,
+           m.recommended_action,
+           p.id              AS parsed_job_id,
+           p.title,
+           p.employer,
+           p.location,
+           p.remote_ok,
+           p.key_requirements,
+           p.responsibilities,
+           p.salary,
+           p.deadline,
+           p.application_method,
+           p.application_target,
+           r.source,
+           r.url
+    FROM match_results m
+    JOIN parsed_jobs p ON p.id = m.parsed_job_id
+    JOIN raw_jobs    r ON r.id = p.raw_job_id
+    LEFT JOIN applications a ON a.match_result_id = m.id
+    WHERE m.match_status = 'matched'
+      AND m.recommended_action IN ('auto_apply', 'queue')
+      AND a.id IS NULL
+    ORDER BY m.score DESC, m.id DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+function insertApplication({
+  matchResultId, status, outputDir, resumePath, coverLetterPath,
+  inputTokens, outputTokens, cacheReadTokens, error,
+}) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO applications (
+      match_result_id, apply_status, output_dir, resume_path, cover_letter_path,
+      tailored_at, input_tokens, output_tokens, cache_read_tokens, apply_error
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(match_result_id) DO NOTHING
+  `).run(
+    matchResultId,
+    status,
+    outputDir || null,
+    resumePath || null,
+    coverLetterPath || null,
+    status === 'ready' || status === 'sent' ? new Date().toISOString() : null,
+    inputTokens || null,
+    outputTokens || null,
+    cacheReadTokens || null,
+    error || null,
+  );
+}
+
+function markApplicationSent(matchResultId, messageId) {
+  const db = getDb();
+  db.prepare(`
+    UPDATE applications
+       SET apply_status = 'sent',
+           sent_at = datetime('now'),
+           email_message_id = ?
+     WHERE match_result_id = ?
+  `).run(messageId || null, matchResultId);
+}
+
+function recentApplications({ limit = 25, status = null } = {}) {
+  const db = getDb();
+  const filter = status ? 'WHERE a.apply_status = ?' : '';
+  const args = status ? [status, limit] : [limit];
+  return db.prepare(`
+    SELECT a.id, a.match_result_id, a.apply_status, a.output_dir,
+           a.resume_path, a.cover_letter_path,
+           a.tailored_at, a.sent_at, a.apply_error,
+           m.score, m.recommended_action,
+           p.title, p.employer, p.location,
+           p.application_method, p.application_target,
+           r.source, r.url
+    FROM applications a
+    JOIN match_results m ON m.id = a.match_result_id
+    JOIN parsed_jobs   p ON p.id = m.parsed_job_id
+    JOIN raw_jobs      r ON r.id = p.raw_job_id
+    ${filter}
+    ORDER BY a.id DESC
+    LIMIT ?
+  `).all(...args);
+}
+
+function todaysDigestRows() {
+  // Anything sent or readied today, for the 7pm summary email.
+  const db = getDb();
+  const since = new Date(); since.setHours(0, 0, 0, 0);
+  const cutoff = since.toISOString();
+  return {
+    sent: db.prepare(`
+      SELECT a.id, a.sent_at, p.title, p.employer, p.application_target, r.url
+      FROM applications a
+      JOIN match_results m ON m.id = a.match_result_id
+      JOIN parsed_jobs   p ON p.id = m.parsed_job_id
+      JOIN raw_jobs      r ON r.id = p.raw_job_id
+      WHERE a.apply_status = 'sent' AND a.sent_at >= ?
+      ORDER BY a.sent_at DESC
+    `).all(cutoff),
+    queued: db.prepare(`
+      SELECT a.id, a.tailored_at, m.score, p.title, p.employer,
+             p.application_method, p.application_target, r.url,
+             a.resume_path, a.cover_letter_path
+      FROM applications a
+      JOIN match_results m ON m.id = a.match_result_id
+      JOIN parsed_jobs   p ON p.id = m.parsed_job_id
+      JOIN raw_jobs      r ON r.id = p.raw_job_id
+      WHERE a.apply_status = 'ready' AND a.tailored_at >= ?
+      ORDER BY m.score DESC
+    `).all(cutoff),
+    skipped_count: db.prepare(`
+      SELECT COUNT(*) AS n
+      FROM match_results
+      WHERE recommended_action = 'skip' AND matched_at >= ?
+    `).get(cutoff).n,
+  };
+}
+
 function close() {
   if (_db) {
     _db.close();
@@ -406,6 +557,11 @@ module.exports = {
   insertMatchResult,
   insertMatchFailure,
   recentMatchedJobs,
+  getActionableMatches,
+  insertApplication,
+  markApplicationSent,
+  recentApplications,
+  todaysDigestRows,
   contentHash,
   close,
   DB_PATH,

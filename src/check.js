@@ -103,6 +103,42 @@ try {
   ok('match-pending');
 } catch (e) { fail('match-pending', e); }
 
+try {
+  const t = require('./tailor');
+  if (typeof t.tailorResume !== 'function') throw new Error('missing tailorResume');
+  if (typeof t.generateCoverLetter !== 'function') throw new Error('missing generateCoverLetter');
+  if (t.MODEL !== 'claude-opus-4-7') throw new Error(`unexpected model: ${t.MODEL}`);
+  ok('tailor', `(model=${t.MODEL})`);
+} catch (e) { fail('tailor', e); }
+
+try {
+  const d = require('./docgen');
+  if (typeof d.renderResumeDocx !== 'function') throw new Error('missing renderResumeDocx');
+  if (typeof d.renderCoverLetterDocx !== 'function') throw new Error('missing renderCoverLetterDocx');
+  ok('docgen');
+} catch (e) { fail('docgen', e); }
+
+try {
+  const e = require('./emailer');
+  if (typeof e.sendApplication !== 'function') throw new Error('missing sendApplication');
+  const hasSmtp = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+  ok('emailer', hasSmtp ? '(SMTP creds present)' : '(no SMTP creds — queue-only mode)');
+} catch (e) { fail('emailer', e); }
+
+try {
+  const { applyPending } = require('./apply-pending');
+  if (typeof applyPending !== 'function') throw new Error('missing applyPending');
+  ok('apply-pending');
+} catch (e) { fail('apply-pending', e); }
+
+try {
+  const settings = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'settings.json'), 'utf8'));
+  const threshold = settings.auto_apply_threshold;
+  if (threshold == null) throw new Error('auto_apply_threshold missing');
+  const mode = threshold >= 99 ? 'QUEUE-ONLY (nothing auto-sends)' : `AUTO-APPLY at score>=${threshold}`;
+  ok('settings', `mode: ${mode}`);
+} catch (e) { fail('settings', e); }
+
 if (process.exitCode === 1) {
   console.log('\nSelf-check FAILED.');
 } else {

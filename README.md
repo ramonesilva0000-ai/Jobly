@@ -117,6 +117,53 @@ Run `npm run once` twice in a row. The first run should report `added: N,
 dupes: 0`; the second should report `added: 0, dupes: N` — that proves the
 `(source, external_id)` UNIQUE constraint is doing its job.
 
+## Generating a Gmail App Password
+
+The bot sends application emails and the daily digest from your Gmail account
+via SMTP. Google does not let third-party apps use your normal Gmail password —
+you need an **App Password**, which is a one-off 16-character secret tied to
+this specific use.
+
+1. **Enable 2-Step Verification** on the Google account (required before App
+   Passwords appear): https://myaccount.google.com/security → 2-Step
+   Verification → ON.
+2. Visit https://myaccount.google.com/apppasswords.
+3. App: pick **Mail**. Device: pick **Other** and name it `Jobly`.
+4. Google shows a 16-character password like `abcd efgh ijkl mnop`. Copy it
+   exactly (the spaces are cosmetic — paste it without spaces into `.env`).
+5. In `.env`:
+   ```
+   SMTP_USER=youremail@gmail.com
+   SMTP_PASS=abcdefghijklmnop      # the 16 chars, no spaces
+   DIGEST_TO=youremail@gmail.com   # usually same as SMTP_USER
+   ```
+6. App Passwords can be revoked at any time from the same page. Generate a new
+   one if you ever suspect leakage; the old one stops working immediately.
+
+If you ever see `Username and Password not accepted` from the emailer, the
+most common causes are: 2-Step Verification not enabled, app password typed
+with spaces, or the app password was revoked.
+
+## Queue-only mode (recommended starting state)
+
+`config/settings.json` ships with **`auto_apply_threshold: 99`**, which means
+**no emails are auto-sent** regardless of match score. Every actionable match
+gets tailored docs in `data/outputs/<date>__<employer>__<title>/` and ends up
+in the queue for you to review.
+
+To verify the docs look professional:
+
+```bash
+npm run apply             # tailor + render docs for matched jobs
+npm run queue             # tabular view of what's waiting for you
+ls data/outputs/          # browse the generated .docx files
+```
+
+Once you trust the output, edit `config/settings.json` and lower
+`auto_apply_threshold` to `8.5` (the spec default). From then on, matches
+with score ≥ 8.5 AND application_method == "email" AND no blockers will
+actually send via Gmail SMTP, BCCing you on every send.
+
 ## What Phase 1 does and does not do
 
 Does:
